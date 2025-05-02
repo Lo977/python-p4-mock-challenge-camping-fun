@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 
 from models import db, Activity, Camper, Signup
@@ -20,10 +21,78 @@ migrate = Migrate(app, db)
 
 db.init_app(app)
 
-
+api = Api(app)
 @app.route('/')
 def home():
     return ''
+
+class CampersResource(Resource):
+    def get(self, id=None):
+        if id is not None:
+            camper = Camper.query.filter_by(id=id).first()
+            return (camper.to_dict(), 200) if camper else ({"error": "Camper not found"}, 404)
+        
+        campers = Camper.query.all()
+        return [c.to_dict(rules=('-signups',)) for c in campers], 200
+
+    def post(self):
+        data = request.get_json()
+        try:
+            new_camper = Camper(name=data['name'], age=data['age'])
+            db.session.add(new_camper)
+            db.session.commit()
+            return new_camper.to_dict(), 201
+        except (KeyError, ValueError):
+            return {"errors": ["validation errors"]}, 400
+
+    def patch(self, id):
+        camper = Camper.query.filter_by(id=id).first()
+        if not camper:
+            return {"error": "Camper not found"}, 404
+
+        try:
+            data = request.get_json()
+            camper.name = data['name']
+            camper.age = data['age']
+            db.session.commit()
+            return camper.to_dict(), 202
+        except (KeyError, ValueError):
+            return {"errors": ["validation errors"]}, 400
+
+
+class SignupsResource(Resource):
+    def post(self):
+        data = request.get_json()
+        try:
+            new_signup = Signup(
+                time=data['time'],
+                activity_id=data['activity_id'],
+                camper_id=data['camper_id']
+            )
+            db.session.add(new_signup)
+            db.session.commit()
+            return new_signup.to_dict(), 201
+        except (KeyError, ValueError):
+            return {"errors": ["validation errors"]}, 400
+   
+class ActivitiesResource(Resource):
+    def get(self):
+        return [a.to_dict(rules=('-signups',)) for a in Activity.query.all()], 200
+
+    def delete(self, id):
+        activity = Activity.query.filter_by(id=id).first()
+        if not activity:
+            return {"error": "Activity not found"}, 404
+
+        Signup.query.filter_by(activity_id=id).delete()
+        db.session.delete(activity)
+        db.session.commit()
+        return {}, 204
+
+
+api.add_resource(CampersResource, '/campers', '/campers/<int:id>')
+api.add_resource(ActivitiesResource, '/activities', '/activities/<int:id>')
+api.add_resource(SignupsResource, '/signups')
 
 if __name__ == '__main__':
     app.run(port=5555, debug=True)
